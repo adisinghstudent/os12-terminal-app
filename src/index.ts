@@ -60,43 +60,81 @@ app.on('activate', () => {
 });
 
 // Test node-pty directly before attempting terminal creation
-const testNodePty = () => {
+const testNodePty = async () => {
   console.log('🧪 Testing node-pty module...');
   try {
     console.log('node-pty version:', require('node-pty/package.json').version);
     console.log('node-pty spawn function:', typeof pty.spawn);
     
-    // Test with the absolute minimal configuration
-    console.log('🧪 Attempting minimal PTY spawn test...');
-    const testPty = pty.spawn('/bin/sh', [], {
+    // Determine the best shell to use
+    const shell = process.platform === 'win32' ? 'powershell.exe' : 
+                  process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash';
+    
+    console.log(`🧪 Testing PTY spawn with shell: ${shell}`);
+    
+    // Test with a more robust configuration
+    const testPty = pty.spawn(shell, [], {
       cols: 80,
-      rows: 24
+      rows: 24,
+      cwd: os.homedir(),
+      env: { ...process.env }
     });
     
     console.log('✅ PTY test successful, PID:', testPty.pid);
+    
+    // Give it a moment to initialize
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     testPty.kill();
     return true;
   } catch (error) {
     console.error('❌ PTY test failed:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
     return false;
   }
 };
 
-// Simple terminal implementation
-const startTerminal = () => {
+// Improved terminal implementation
+const startTerminal = async () => {
   try {
     console.log('🚀 Starting terminal...');
     
     // First test node-pty
-    if (!testNodePty()) {
-      throw new Error('node-pty test failed');
+    const ptyTestResult = await testNodePty();
+    if (!ptyTestResult) {
+      throw new Error('node-pty test failed - please check console for details');
     }
     
-    // Use the simplest possible configuration
-    console.log('🔄 Creating PTY with minimal config...');
-    ptyProcess = pty.spawn('/bin/sh', [], {
+    // Determine the best shell and args to use
+    let shell: string;
+    let shellArgs: string[] = [];
+    
+    if (process.platform === 'win32') {
+      shell = 'powershell.exe';
+    } else if (process.platform === 'darwin') {
+      shell = '/bin/zsh';
+      shellArgs = ['-l']; // Login shell to load profile
+    } else {
+      shell = '/bin/bash';
+      shellArgs = ['-l'];
+    }
+    
+    console.log(`🔄 Creating PTY with shell: ${shell} ${shellArgs.join(' ')}`);
+    
+    // Create PTY with better configuration
+    ptyProcess = pty.spawn(shell, shellArgs, {
       cols: 80,
-      rows: 24
+      rows: 24,
+      cwd: os.homedir(),
+      env: { 
+        ...process.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor'
+      }
     });
 
     console.log('✅ PTY process created successfully');
@@ -105,9 +143,13 @@ const startTerminal = () => {
 
     // Handle data from terminal
     ptyProcess.onData((data: string) => {
-      console.log('📤 Terminal data:', JSON.stringify(data.substring(0, 30)));
+      console.log('📤 Terminal data received:', data.length, 'bytes');
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('terminal-data', data);
+        try {
+          mainWindow.webContents.send('terminal-data', data);
+        } catch (error) {
+          console.error('❌ Error sending terminal data:', error);
+        }
       }
     });
 
@@ -115,24 +157,28 @@ const startTerminal = () => {
     ptyProcess.onExit(({ exitCode, signal }) => {
       console.log(`💀 Terminal exited: code=${exitCode}, signal=${signal}`);
       ptyProcess = null;
+      
+      // Restart terminal after a delay
+      setTimeout(() => {
+        console.log('🔄 Restarting terminal...');
+        startTerminal();
+      }, 2000);
     });
 
-    // Send welcome message
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        console.log('👋 Sending welcome message');
-        mainWindow.webContents.send('terminal-data', 'Terminal ready!\n$ ');
-      }
-    }, 1000);
+    console.log('✅ Terminal started successfully');
 
   } catch (error) {
     console.error('❌ Terminal start failed:', error);
-    console.error('Stack:', error.stack);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
     
     // Send error to frontend
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('terminal-data', 
-        `Terminal failed: ${error.message}\nPlease check console.\n`
+        `Terminal failed: ${error.message}\nNode-pty error - please check console for details.\n`
       );
     }
   }
@@ -198,8 +244,8 @@ ipcMain.handle('save-mcp-config', async (event, config: any) => {
 // Start terminal when app is ready
 app.on('ready', () => {
   createWindow();
-  setTimeout(() => {
-    startTerminal();
+  setTimeout(async () => {
+    await startTerminal();
   }, 2000);
 });
 
