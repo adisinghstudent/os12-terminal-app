@@ -17,41 +17,17 @@ export const Terminal: React.FC = () => {
 
     console.log('🚀 Initializing terminal component...');
 
-    // Create terminal instance with better configuration
+    // Create terminal instance with clean minimal configuration
     const terminal = new XTerm({
-      fontFamily: '"Cascadia Code", "Fira Code", Monaco, Menlo, "Ubuntu Mono", monospace',
+      fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
       fontSize: 14,
-      lineHeight: 1.2,
-      letterSpacing: 0,
       theme: {
-        background: '#1e1e1e',
-        foreground: '#d4d4d4',
-        cursor: '#ffffff',
-        cursorAccent: '#000000',
-        selection: '#264f78',
-        black: '#000000',
-        red: '#cd3131',
-        green: '#0dbc79',
-        yellow: '#e5e510',
-        blue: '#2472c8',
-        magenta: '#bc3fbc',
-        cyan: '#11a8cd',
-        white: '#e5e5e5',
-        brightBlack: '#666666',
-        brightRed: '#f14c4c',
-        brightGreen: '#23d18b',
-        brightYellow: '#f5f543',
-        brightBlue: '#3b8eea',
-        brightMagenta: '#d670d6',
-        brightCyan: '#29b8db',
-        brightWhite: '#e5e5e5'
+        background: '#ffffff',
+        foreground: '#000000',
+        cursor: '#000000'
       },
       cursorBlink: true,
-      cursorStyle: 'block',
-      scrollback: 1000,
-      tabStopWidth: 4,
-      convertEol: true,
-      allowTransparency: false
+      convertEol: true
     });
 
     console.log('✅ Terminal instance created');
@@ -151,33 +127,8 @@ export const Terminal: React.FC = () => {
     };
   }, []);
 
-  // Add a status indicator
-  const terminalStyle: React.CSSProperties = {
-    height: '100%',
-    width: '100%',
-    position: 'relative',
-    backgroundColor: '#1e1e1e',
-    border: '1px solid #333'
-  };
-
-  const statusStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: '5px',
-    right: '10px',
-    color: isInitialized ? '#0dbc79' : '#f14c4c',
-    fontSize: '12px',
-    fontFamily: 'monospace',
-    zIndex: 1000,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    padding: '2px 6px',
-    borderRadius: '3px'
-  };
-
   return (
-    <div style={terminalStyle}>
-      <div style={statusStyle}>
-        {isInitialized ? '🟢 READY' : '🔄 INIT'}
-      </div>
+    <div style={{ height: '100%', width: '100%' }}>
       <div ref={terminalRef} style={{ height: '100%', width: '100%' }} />
     </div>
   );

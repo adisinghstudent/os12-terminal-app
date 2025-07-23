@@ -33,8 +33,8 @@ const createWindow = (): void => {
   // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
-  // Open DevTools for debugging
-  mainWindow.webContents.openDevTools();
+  // Only open DevTools in development
+  // mainWindow.webContents.openDevTools();
 };
 
 // This method will be called when Electron has finished
@@ -64,32 +64,39 @@ const startTerminal = () => {
   try {
     console.log('🚀 Starting terminal with node-pty...');
     
-    // Determine the shell to use
-    const shell = process.platform === 'win32' ? 'powershell.exe' : 
-                  process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash';
+    // Better shell detection with fallbacks
+    let shell: string;
+    if (process.platform === 'win32') {
+      shell = process.env.COMSPEC || 'powershell.exe';
+    } else {
+      // Try to detect the user's preferred shell
+      shell = process.env.SHELL || '/bin/bash';
+      
+      // Verify shell exists, fallback if not
+      if (!fs.existsSync(shell)) {
+        const fallbacks = ['/bin/zsh', '/bin/bash', '/bin/sh'];
+        shell = fallbacks.find(s => fs.existsSync(s)) || '/bin/sh';
+      }
+    }
     
     console.log(`📋 Using shell: ${shell}`);
-    console.log(`📂 Working directory: ${process.env.HOME || process.cwd()}`);
     
-    // Create pty process with proper configuration
+    const workingDir = process.env.HOME || process.cwd();
+    console.log(`📂 Working directory: ${workingDir}`);
+    
+    // Create pty process with improved configuration
     ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-color',
       cols: 80,
       rows: 24,
-      cwd: process.env.HOME || process.cwd(),
+      cwd: workingDir,
       env: {
         ...process.env,
         TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-        // Ensure PATH is properly set
         PATH: process.env.PATH,
-        // Shell-specific configurations
-        ...(process.platform === 'darwin' && {
-          SHELL: shell,
-          HOME: process.env.HOME,
-          USER: process.env.USER,
-          LANG: process.env.LANG || 'en_US.UTF-8'
-        })
+        // Ensure proper locale settings
+        LANG: process.env.LANG || 'en_US.UTF-8',
+        LC_ALL: process.env.LC_ALL || 'en_US.UTF-8'
       }
     });
 
@@ -98,7 +105,7 @@ const startTerminal = () => {
 
     // Handle data from terminal (output)
     ptyProcess.onData((data: string) => {
-      console.log('📤 Terminal output:', JSON.stringify(data.substring(0, 100)) + (data.length > 100 ? '...' : ''));
+      console.log('📤 Terminal output:', JSON.stringify(data.substring(0, 50)) + (data.length > 50 ? '...' : ''));
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('terminal-data', data);
       }
@@ -119,8 +126,8 @@ const startTerminal = () => {
     // Send initial welcome message
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        console.log('👋 Sending welcome message to terminal');
-        mainWindow.webContents.send('terminal-data', '\r\n🎉 Terminal initialized successfully! Type commands below:\r\n');
+        console.log('👋 Terminal ready');
+        mainWindow.webContents.send('terminal-data', '\r\nTerminal ready. Type commands below:\r\n$ ');
       }
     }, 500);
 
