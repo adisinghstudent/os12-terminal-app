@@ -33,8 +33,8 @@ const createWindow = (): void => {
   // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
-  // Only open DevTools in development
-  // mainWindow.webContents.openDevTools();
+  // Enable DevTools for debugging
+  mainWindow.webContents.openDevTools();
 };
 
 // This method will be called when Electron has finished
@@ -59,53 +59,53 @@ app.on('activate', () => {
   }
 });
 
-// Terminal implementation using node-pty for proper pseudoterminal support
+// Test node-pty directly before attempting terminal creation
+const testNodePty = () => {
+  console.log('🧪 Testing node-pty module...');
+  try {
+    console.log('node-pty version:', require('node-pty/package.json').version);
+    console.log('node-pty spawn function:', typeof pty.spawn);
+    
+    // Test with the absolute minimal configuration
+    console.log('🧪 Attempting minimal PTY spawn test...');
+    const testPty = pty.spawn('/bin/sh', [], {
+      cols: 80,
+      rows: 24
+    });
+    
+    console.log('✅ PTY test successful, PID:', testPty.pid);
+    testPty.kill();
+    return true;
+  } catch (error) {
+    console.error('❌ PTY test failed:', error);
+    return false;
+  }
+};
+
+// Simple terminal implementation
 const startTerminal = () => {
   try {
-    console.log('🚀 Starting terminal with node-pty...');
+    console.log('🚀 Starting terminal...');
     
-    // Better shell detection with fallbacks
-    let shell: string;
-    if (process.platform === 'win32') {
-      shell = process.env.COMSPEC || 'powershell.exe';
-    } else {
-      // Try to detect the user's preferred shell
-      shell = process.env.SHELL || '/bin/bash';
-      
-      // Verify shell exists, fallback if not
-      if (!fs.existsSync(shell)) {
-        const fallbacks = ['/bin/zsh', '/bin/bash', '/bin/sh'];
-        shell = fallbacks.find(s => fs.existsSync(s)) || '/bin/sh';
-      }
+    // First test node-pty
+    if (!testNodePty()) {
+      throw new Error('node-pty test failed');
     }
     
-    console.log(`📋 Using shell: ${shell}`);
-    
-    const workingDir = process.env.HOME || process.cwd();
-    console.log(`📂 Working directory: ${workingDir}`);
-    
-    // Create pty process with improved configuration
-    ptyProcess = pty.spawn(shell, [], {
-      name: 'xterm-color',
+    // Use the simplest possible configuration
+    console.log('🔄 Creating PTY with minimal config...');
+    ptyProcess = pty.spawn('/bin/sh', [], {
       cols: 80,
-      rows: 24,
-      cwd: workingDir,
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        PATH: process.env.PATH,
-        // Ensure proper locale settings
-        LANG: process.env.LANG || 'en_US.UTF-8',
-        LC_ALL: process.env.LC_ALL || 'en_US.UTF-8'
-      }
+      rows: 24
     });
 
     console.log('✅ PTY process created successfully');
-    console.log(`📏 Initial terminal size: ${ptyProcess.cols}x${ptyProcess.rows}`);
+    console.log(`📏 Terminal size: ${ptyProcess.cols}x${ptyProcess.rows}`);
+    console.log(`🆔 PTY PID: ${ptyProcess.pid}`);
 
-    // Handle data from terminal (output)
+    // Handle data from terminal
     ptyProcess.onData((data: string) => {
-      console.log('📤 Terminal output:', JSON.stringify(data.substring(0, 50)) + (data.length > 50 ? '...' : ''));
+      console.log('📤 Terminal data:', JSON.stringify(data.substring(0, 30)));
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('terminal-data', data);
       }
@@ -113,69 +113,55 @@ const startTerminal = () => {
 
     // Handle terminal exit
     ptyProcess.onExit(({ exitCode, signal }) => {
-      console.log(`💀 Terminal process exited with code ${exitCode}, signal ${signal}`);
+      console.log(`💀 Terminal exited: code=${exitCode}, signal=${signal}`);
       ptyProcess = null;
-      
-      // Restart terminal after a brief delay
-      setTimeout(() => {
-        console.log('🔄 Restarting terminal...');
-        startTerminal();
-      }, 1000);
     });
 
-    // Send initial welcome message
+    // Send welcome message
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        console.log('👋 Terminal ready');
-        mainWindow.webContents.send('terminal-data', '\r\nTerminal ready. Type commands below:\r\n$ ');
-      }
-    }, 500);
-
-  } catch (error) {
-    console.error('❌ Failed to start terminal:', error);
-    
-    // Send error message to frontend
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('terminal-data', 
-          `\r\n❌ Terminal failed to start: ${error.message}\r\n` +
-          'Please check the console for more details.\r\n'
-        );
+        console.log('👋 Sending welcome message');
+        mainWindow.webContents.send('terminal-data', 'Terminal ready!\n$ ');
       }
     }, 1000);
+
+  } catch (error) {
+    console.error('❌ Terminal start failed:', error);
+    console.error('Stack:', error.stack);
+    
+    // Send error to frontend
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('terminal-data', 
+        `Terminal failed: ${error.message}\nPlease check console.\n`
+      );
+    }
   }
 };
 
-// IPC handlers with improved error handling and logging
+// IPC handlers
 ipcMain.handle('terminal-input', (event, data: string) => {
-  console.log('📥 Terminal input received:', JSON.stringify(data));
+  console.log('📥 Input:', JSON.stringify(data));
   
   if (ptyProcess) {
     try {
       ptyProcess.write(data);
-      console.log('✅ Data written to PTY');
     } catch (error) {
-      console.error('❌ Error writing to PTY:', error);
+      console.error('❌ Write error:', error);
     }
   } else {
-    console.warn('⚠️ No PTY process available for input');
-    // Try to restart terminal
-    startTerminal();
+    console.warn('⚠️ No PTY for input');
   }
 });
 
 ipcMain.handle('terminal-resize', (event, cols: number, rows: number) => {
-  console.log(`📏 Terminal resize requested: ${cols}x${rows}`);
+  console.log(`📏 Resize: ${cols}x${rows}`);
   
   if (ptyProcess) {
     try {
       ptyProcess.resize(cols, rows);
-      console.log('✅ Terminal resized successfully');
     } catch (error) {
-      console.error('❌ Error resizing terminal:', error);
+      console.error('❌ Resize error:', error);
     }
-  } else {
-    console.warn('⚠️ No PTY process available for resize');
   }
 });
 
@@ -212,21 +198,19 @@ ipcMain.handle('save-mcp-config', async (event, config: any) => {
 // Start terminal when app is ready
 app.on('ready', () => {
   createWindow();
-  // Delay terminal start to ensure window is ready
   setTimeout(() => {
     startTerminal();
-  }, 1000);
+  }, 2000);
 });
 
-// Cleanup on quit
+// Cleanup
 app.on('before-quit', () => {
-  console.log('🛑 App quitting, cleaning up...');
+  console.log('🛑 Cleaning up...');
   if (ptyProcess) {
     try {
       ptyProcess.kill();
-      console.log('✅ PTY process terminated');
     } catch (error) {
-      console.error('❌ Error terminating PTY:', error);
+      console.error('❌ Cleanup error:', error);
     }
   }
 });
